@@ -29,7 +29,7 @@ import warnings
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import Optional
-
+from accelerate import Accelerator
 import datasets
 import evaluate
 from datasets import load_dataset
@@ -54,9 +54,10 @@ from transformers.utils.versions import require_version
 
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.35.0.dev0")
+# check_min_version("4.35.0.dev0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
+accelerator = Accelerator()
 
 logger = logging.getLogger(__name__)
 MODEL_CONFIG_CLASSES = list(MODEL_FOR_MASKED_LM_MAPPING.keys())
@@ -610,7 +611,8 @@ def main():
     )
 
     # Initialize our Trainer
-    trainer = Trainer(
+    
+    trainer = accelerator.prepare(Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -620,9 +622,9 @@ def main():
         compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
         if training_args.do_eval and not is_torch_tpu_available()
-        else None,
+        else None
     )
-
+    )
     # Training
     if training_args.do_train:
         checkpoint = None
