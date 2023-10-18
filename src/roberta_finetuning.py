@@ -6,13 +6,6 @@ from datasets import load_dataset
 import numpy as np
 import torch.nn.functional as F
 
-if torch.cuda.is_available():
-    device = torch.device("cuda:0")
-    torch.cuda.set_device(device)
-else:
-    device = torch.device("cpu")
-    print("CUDA is not available. Training on CPU.")
-
 # 1. load dataset
 dataset = load_dataset("conll2003")
 label_list = [i for i in range (9)]
