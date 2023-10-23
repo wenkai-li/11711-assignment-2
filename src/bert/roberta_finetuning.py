@@ -1,4 +1,5 @@
 import torch
+import evaluate
 from torch.utils.data import DataLoader
 from sklearn.metrics import precision_recall_fscore_support
 from transformers import AutoTokenizer, AutoModelForTokenClassification, Trainer, TrainingArguments, DataCollatorForTokenClassification
@@ -7,7 +8,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MultiLabelBinarizer
 import numpy as np
 import torch.nn.functional as F
-from accelerate import Accelerator
+import os
+
+
+metric = evaluate.load("seqeval")
+
+# class Training:
+    # def __init__(self):
 
 # 1. load dataset
 def load_custom_dataset(file_path):
@@ -29,10 +36,17 @@ def load_custom_dataset(file_path):
                     tokens, tags = [], []  # Reset for next sentence
     return {"tokens": sentences, "ner_tags": ner_tags}, all_tags
 
+# load all the dataset
+file_path = "/home/zw3/11711-assignment-2/annotated"
+dataset = []
+tags = []
+for i in os.listdir(file_path):
+    data, all_tags = load_custom_dataset(os.path.join(file_path, i))
+    dataset.extend(data)
+    tags = tags + all_tags
 
-dataset, all_tags = load_custom_dataset('output.conll')
 # dataset = Dataset.from_dict(dataset)
-label_list = np.unique(all_tags).tolist()
+label_list = np.unique(tags).tolist()
 label_to_id = {label: i for i, label in enumerate(label_list)}
 # 2. load model and tokenizer
 model_directory_path = '/home/zw3/11711-assignment-2/checkpoints_linebyline_1000e'
@@ -66,8 +80,8 @@ tokenized_test_dataset = Dataset.from_dict({'tokens': test_data, 'ner_tags': tes
 training_args = TrainingArguments(
     per_device_train_batch_size=64,
     per_device_eval_batch_size=32,
-    output_dir='./results',
-    num_train_epochs=400,
+    output_dir='./results_2',
+    num_train_epochs=600,
     evaluation_strategy="epoch",
     save_strategy="epoch",
     logging_dir='./logs',
@@ -81,31 +95,23 @@ training_args = TrainingArguments(
     seed = 42
 )
 
-def compute_metrics(p):
-    predictions, labels = p
-    predictions = np.argmax(predictions, axis=2)
 
-    # Remove ignored index (special tokens)
+def compute_metrics(self, eval_preds):
+    logits, labels = eval_preds
+    predictions = np.argmax(logits, axis=-1)
+
+    # Remove ignored index (special tokens) and convert to labels
+    true_labels = [[self.label_classes[l] for l in label if l != -100] for label in labels]
     true_predictions = [
-        [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+        [self.label_classes[p] for (p, l) in zip(prediction, label) if l != -100]
         for prediction, label in zip(predictions, labels)
     ]
-    true_labels = [
-        [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-        for prediction, label in zip(predictions, labels)
-    ]
-
-    mlb = MultiLabelBinarizer()
-    true_labels_binarized = mlb.fit_transform(true_labels)
-    true_predictions_binarized = mlb.transform(true_predictions)
-
-    results = precision_recall_fscore_support(true_labels_binarized, true_predictions_binarized, average='samples')  # or other averaging method depending on your task
-
+    all_metrics = metric.compute(predictions=true_predictions, references=true_labels)
     return {
-        "precision": results[0],
-        "recall": results[1],
-        "f1": results[2],
-        "num_samples": len(true_labels),
+        "precision": all_metrics["overall_precision"],
+        "recall": all_metrics["overall_recall"],
+        "f1": all_metrics["overall_f1"],
+        "accuracy": all_metrics["overall_accuracy"],
     }
 
 trainer = Trainer(
