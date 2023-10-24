@@ -9,10 +9,11 @@ from sklearn.preprocessing import MultiLabelBinarizer
 import numpy as np
 import torch.nn.functional as F
 import os
+from accelerate import Accelerator
 
 
 metric = evaluate.load("seqeval")
-
+accelerator = Accelerator()
 # class Training:
     # def __init__(self):
 
@@ -38,11 +39,14 @@ def load_custom_dataset(file_path):
 
 # load all the dataset
 file_path = "/home/zw3/11711-assignment-2/annotated"
-dataset = []
+dataset = {
+    'tokens': [],
+    'ner_tags': []
+}
 tags = []
 for i in os.listdir(file_path):
     data, all_tags = load_custom_dataset(os.path.join(file_path, i))
-    dataset.extend(data)
+    dataset = {key: dataset[key] + data[key] for key in dataset}
     tags = tags + all_tags
 
 # dataset = Dataset.from_dict(dataset)
@@ -80,7 +84,7 @@ tokenized_test_dataset = Dataset.from_dict({'tokens': test_data, 'ner_tags': tes
 training_args = TrainingArguments(
     per_device_train_batch_size=64,
     per_device_eval_batch_size=32,
-    output_dir='./results_2',
+    output_dir='./results_1',
     num_train_epochs=600,
     evaluation_strategy="epoch",
     save_strategy="epoch",
@@ -91,22 +95,21 @@ training_args = TrainingArguments(
     do_eval=True,
     load_best_model_at_end=True,
     learning_rate=1e-5,
-    label_names=["labels"],
     seed = 42
 )
 
 
-def compute_metrics(self, eval_preds):
+def compute_metrics(eval_preds):
     logits, labels = eval_preds
     predictions = np.argmax(logits, axis=-1)
 
     # Remove ignored index (special tokens) and convert to labels
-    true_labels = [[self.label_classes[l] for l in label if l != -100] for label in labels]
+    true_labels = [[label_list[l] for l in label if l != -100] for label in labels]
     true_predictions = [
-        [self.label_classes[p] for (p, l) in zip(prediction, label) if l != -100]
+        [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
         for prediction, label in zip(predictions, labels)
     ]
-    all_metrics = metric.compute(predictions=true_predictions, references=true_labels)
+    all_metrics = metric.compute(predictions=true_predictions, references=true_labels, zero_division=1)
     return {
         "precision": all_metrics["overall_precision"],
         "recall": all_metrics["overall_recall"],
@@ -114,7 +117,8 @@ def compute_metrics(self, eval_preds):
         "accuracy": all_metrics["overall_accuracy"],
     }
 
-trainer = Trainer(
+
+trainer = accelerator.prepare(Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_train_dataset,
@@ -122,6 +126,7 @@ trainer = Trainer(
     tokenizer=tokenizer,
     data_collator=data_collator,
     compute_metrics=compute_metrics
+)
 )
 # 6. training
 trainer.train()
